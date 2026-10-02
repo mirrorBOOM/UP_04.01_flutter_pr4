@@ -1,21 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_web_plugins/url_strategy.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'repositories/workout_repository.dart';
-import 'repositories/in_memory_workout_repository.dart';
-import 'repositories/trainer_repository.dart';
+import 'repositories/persistent_workout_repository.dart';
 import 'state/workout_list_notifier.dart';
 import 'router.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   usePathUrlStrategy();
+
+  final prefs = await SharedPreferences.getInstance();
+  final repo = FitnessClubRepository(prefs);
+
   runApp(
     MultiProvider(
       providers: [
-        Provider<WorkoutRepository>(create: (_) => InMemoryWorkoutRepository()),
-        Provider<TrainerRepository>(create: (_) => InMemoryTrainerRepository()),
+        Provider<FitnessClubRepository>.value(value: repo),
+        Provider<WorkoutRepository>.value(value: repo),
         ChangeNotifierProvider<WorkoutListNotifier>(
-          create: (ctx) => WorkoutListNotifier(ctx.read<WorkoutRepository>()),
+          create: (ctx) => WorkoutListNotifier(ctx.read<WorkoutRepository>())..load(),
         ),
       ],
       child: const FitnessClubApp(),

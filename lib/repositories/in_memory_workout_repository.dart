@@ -29,9 +29,27 @@ class InMemoryWorkoutRepository implements WorkoutRepository {
   ];
 
   @override
-  Future<PageResult<Workout>> find(WorkoutQuery q) async {
-    await Future.delayed(const Duration(milliseconds: 250));
+  bool isCodeTaken(String code, [int? currentId]) {
+    return _items.any((w) => w.code.toLowerCase() == code.toLowerCase() && w.id != currentId);
+  }
 
+  @override
+  int countWorkoutsInHall(int hallId) {
+    return _items.where((w) => w.hallId == hallId && !w.isDeleted).length;
+  }
+
+  @override
+  Future<void> save(Workout workout) async {
+    final idx = _items.indexWhere((w) => w.id == workout.id);
+    if (idx != -1) {
+      _items[idx] = workout;
+    } else {
+      _items.add(workout);
+    }
+  }
+
+  @override
+  Future<PageResult<Workout>> find(WorkoutQuery q) async {
     var rows = _items.where((w) => q.includeDeleted || !w.isDeleted).toList();
 
     if (q.search.trim().isNotEmpty) {
@@ -43,12 +61,6 @@ class InMemoryWorkoutRepository implements WorkoutRepository {
 
     if (q.trainerId != null) {
       rows = rows.where((w) => w.trainerId == q.trainerId).toList();
-    }
-    if (q.minIntensity != null) {
-      rows = rows.where((w) => w.intensity >= q.minIntensity!).toList();
-    }
-    if (q.maxDuration != null) {
-      rows = rows.where((w) => w.durationMinutes <= q.maxDuration!).toList();
     }
 
     rows.sort((a, b) {
@@ -72,7 +84,6 @@ class InMemoryWorkoutRepository implements WorkoutRepository {
 
   @override
   Future<Workout?> findById(int id) async {
-    await Future.delayed(const Duration(milliseconds: 150));
     try {
       return _items.firstWhere((w) => w.id == id);
     } catch (_) {

@@ -3,7 +3,7 @@ class Trainer {
   final String fullName;
   final String specialization;
   final int experienceYears;
-  final String category; 
+  final String category;
   final DateTime? deletedAt;
 
   const Trainer({
@@ -16,6 +16,24 @@ class Trainer {
   });
 
   bool get isDeleted => deletedAt != null;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'fullName': fullName,
+    'specialization': specialization,
+    'experienceYears': experienceYears,
+    'category': category,
+    'deletedAt': deletedAt?.toIso8601String(),
+  };
+
+  factory Trainer.fromJson(Map<String, dynamic> json) => Trainer(
+    id: json['id'] as int? ?? 0,
+    fullName: json['fullName'] as String? ?? '',
+    specialization: json['specialization'] as String? ?? '',
+    experienceYears: json['experienceYears'] as int? ?? 0,
+    category: json['category'] as String? ?? 'PRO',
+    deletedAt: json['deletedAt'] == null ? null : DateTime.tryParse(json['deletedAt'] as String),
+  );
 
   Trainer copyWith({
     String? fullName,
