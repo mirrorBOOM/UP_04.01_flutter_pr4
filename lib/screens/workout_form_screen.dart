@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
+import '../core/api_exceptions.dart';
 import '../models/workout.dart';
+import '../repositories/workout_repository.dart';
 import '../repositories/persistent_workout_repository.dart';
 import '../state/workout_list_notifier.dart';
 import '../utils/validators.dart';
@@ -17,6 +19,8 @@ class WorkoutFormScreen extends StatefulWidget {
 class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
   final _formKey = GlobalKey<FormState>();
   bool _isDirty = false;
+  bool _saving = false; 
+  Map<String, String> _serverErrors = {}; 
 
   late final TextEditingController _titleController;
   late final TextEditingController _codeController;
@@ -39,7 +43,7 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final repo = context.read<FitnessClubRepository>();
       if (isEditing) {
-        _loadData(repo);
+        _loadData();
       } else {
         if (repo.allHalls.isNotEmpty) {
           setState(() => _hallId = repo.allHalls.first.id);
@@ -57,7 +61,8 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
     super.dispose();
   }
 
-  Future<void> _loadData(FitnessClubRepository repo) async {
+  Future<void> _loadData() async {
+    final repo = context.read<WorkoutRepository>();
     final item = await repo.findById(widget.id!);
     if (item != null) {
       setState(() {
@@ -72,8 +77,10 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
   }
 
   Future<void> _submit() async {
+    setState(() => _serverErrors = {});
     if (!_formKey.currentState!.validate()) return;
-    final repo = context.read<FitnessClubRepository>();
+
+    setState(() => _saving = true);
 
     final workout = Workout(
       id: isEditing ? widget.id! : DateTime.now().millisecondsSinceEpoch ~/ 1000,
@@ -89,11 +96,31 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
       capacityAvailable: 15,
     );
 
-    await repo.save(workout);
-    if (!mounted) return;
-    await context.read<WorkoutListNotifier>().load();
-    _isDirty = false;
-    if (mounted) context.go('/');
+    try {
+      final repo = context.read<WorkoutRepository>();
+      await repo.save(workout);
+      if (!mounted) return;
+      await context.read<WorkoutListNotifier>().load();
+      _isDirty = false;
+      context.go('/');
+    } on ValidationException catch (e) {
+      setState(() => _serverErrors = e.errors);
+      _formKey.currentState!.validate();
+    } on ConflictException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Конфликт данных (409): ${e.message}'), backgroundColor: Colors.orange),
+        );
+      }
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message), backgroundColor: Colors.red),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -103,9 +130,9 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
     final categories = repo.allCategories;
 
     final availableCategories = categories.where((cat) {
-      if (_hallId == 3) return cat.id == 4; 
-      if (_hallId == 2) return cat.id == 2 || cat.id == 3; 
-      return true; 
+      if (_hallId == 3) return cat.id == 4;
+      if (_hallId == 2) return cat.id == 2 || cat.id == 3;
+      return true;
     }).toList();
 
     return PopScope(
@@ -145,9 +172,10 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
                   children: [
                     TextFormField(
                       controller: _titleController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Название программы *',
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        errorText: _serverErrors['title'],
                       ),
                       validator: (v) =>
                           AppValidators.requiredField(v) ??
@@ -156,17 +184,16 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
                     const SizedBox(height: 16),
                     TextFormField(
                       controller: _codeController,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Артикул / Код программы *',
-                        border: OutlineInputBorder(),
+                        border: const OutlineInputBorder(),
+                        errorText: _serverErrors['code'],
                       ),
                       validator: (val) {
-                        final err = AppValidators.requiredField(val);
-                        if (err != null) return err;
-                        if (repo.isCodeTaken(val!.trim(), widget.id)) {
-                          return 'Программа с таким артикулом уже есть';
+                        if (_serverErrors.containsKey('code')) {
+                          return _serverErrors['code'];
                         }
-                        return null;
+                        return AppValidators.requiredField(val);
                       },
                     ),
                     const SizedBox(height: 16),
@@ -257,10 +284,21 @@ class _WorkoutFormScreenState extends State<WorkoutFormScreen> {
                     ),
                     const SizedBox(height: 24),
                     FilledButton(
-                      onPressed: _submit,
-                      child: Text(
-                        isEditing ? 'Сохранить изменения' : 'Создать тренировку',
-                      ),
+                      onPressed: _saving ? null : _submit,
+                      child: _saving
+                          ? const SizedBox(
+                              width: 20,
+                              height: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              isEditing
+                                  ? 'Сохранить изменения'
+                                  : 'Создать тренировку',
+                            ),
                     ),
                   ],
                 ),
